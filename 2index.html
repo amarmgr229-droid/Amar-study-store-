@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Amar Study Store</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="bg-gray-100 font-sans">
+    <div id="app" class="max-w-md mx-auto bg-white min-h-screen shadow-lg flex flex-col">
+        <!-- Top Navigation -->
+        <nav class="bg-emerald-600 text-white p-4 flex justify-between items-center sticky top-0 z-20 shadow">
+            <div class="flex items-center space-x-2 cursor-pointer" onclick="goToView('home')">
+                <i class="fa-solid fa-graduation-cap text-2xl"></i>
+                <h1 class="text-lg font-bold tracking-wide">AMAR STUDY STORE</h1>
+            </div>
+            <!-- Only Lock Icon -->
+            <button onclick="goToView('admin')" class="bg-emerald-700 hover:bg-emerald-800 text-white w-9 h-9 flex items-center justify-center rounded-full transition shadow">
+                <i class="fa-solid fa-lock text-sm"></i>
+            </button>
+        </nav>
+
+        <!-- Main Content -->
+        <div id="content" class="flex-1 p-4"></div>
+    </div>
+
+    <script>
+        var currentView = 'home';
+        var selectedBatchId = null;
+        var adminFilter = 'all';
+
+        var FIFTEEN_DAYS_MS = 15 * 24 * 60 * 60 * 1000;
+
+        var defaultBatches = [
+            { id: 1, title: 'JEE Advanced Crash Course', price: 999, desc: 'Complete crash course & tests' },
+            { id: 2, title: 'NEET UG Biology Batch', price: 899, desc: 'NCERT line-by-line coverage' }
+        ];
+
+        function getBatches() {
+            try {
+                var saved = localStorage.getItem('storeBatches');
+                if (saved) return JSON.parse(saved);
+            } catch (e) {}
+            return defaultBatches;
+        }
+
+        function getRequests() {
+            try {
+                var saved = localStorage.getItem('adminRequests');
+                if (saved) return JSON.parse(saved);
+            } catch (e) {}
+            return [];
+        }
+
+        function saveRequests(reqs) {
+            try {
+                localStorage.setItem('adminRequests', JSON.stringify(reqs));
+            } catch (e) {
+                alert('Storage full! Purane 15 din se zyada wale records delete karein.');
+            }
+        }
+
+        function goToView(view) {
+            currentView = view;
+            renderApp();
+        }
+
+        function setAdminFilter(filter) {
+            adminFilter = filter;
+            renderApp();
+        }
+
+        function startCheckout(batchId) {
+            selectedBatchId = batchId;
+            currentView = 'checkout';
+            renderApp();
+        }
+
+        function compressImage(file, callback) {
+            var reader = new FileReader();
+            reader.onload = function(event) {
+                var img = new Image();
+                img.onload = function() {
+                    var canvas = document.createElement('canvas');
+                    var maxWidth = 500;
+                    var scaleSize = maxWidth / img.width;
+                    if (scaleSize > 1) scaleSize = 1;
+                    canvas.width = img.width * scaleSize;
+                    canvas.height = img.height * scaleSize;
+
+                    var ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    var compressedDataUrl = canvas.toDataURL('image/jpeg', 0.6);
+                    callback(compressedDataUrl);
+                };
+                img.src = event.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function handlePurchaseSubmit() {
+            var phoneEl = document.getElementById('studentPhone');
+            var fileEl = document.getElementById('paymentScreenshot');
+            var submitBtn = document.getElementById('submitPayBtn');
+
+            if (!phoneEl || !phoneEl.value.trim()) {
+                alert('Kripya apna phone number darj karein!');
+                return;
+            }
+
+            if (!fileEl || !fileEl.files || fileEl.files.length === 0) {
+                alert('Kripya payment ka screenshot upload karein!');
+                return;
+            }
+
+            if (submitBtn) {
+                submitBtn.disabled = true;
+                submitBtn.innerText = 'Uploading...';
+            }
+
+            var batches = getBatches();
+            var matchedBatch = batches.find(function(b) { return b.id === selectedBatchId; });
+
+            compressImage(fileEl.files[0], function(compressedImage) {
+                var now = Date.now();
+                var newRequest = {
+                    id: now,
+                    createdAt: now,
+                    batchId: selectedBatchId,
+                    batchTitle: matchedBatch ? matchedBatch.title : 'Study Batch',
+                    price: matchedBatch ? matchedBatch.price : 0,
+                    phone: phoneEl.value.trim(),
+                    date: new Date().toLocaleString(),
+                    proof: compressedImage,
+                    status: 'pending'
+                };
+
+                var requests = getRequests();
+                requests.unshift(newRequest);
+                saveRequests(requests);
+
+                alert('Payment screenshot submit ho gaya hai!');
+                goToView('home');
+            });
+        }
+
+        function approveRequest(reqId) {
+            var requests = getRequests();
+            for (var i = 0; i < requests.length; i++) {
+                if (requests[i].id === reqId) {
+                    requests[i].status = 'approved';
+                    break;
+                }
+            }
+            saveRequests(requests);
+            renderApp();
+        }
+
+        // Delete sirf tab hoga jab 15 din poore ho chuke honge (16th day)
+        function rejectRequest(reqId) {
+            var requests = getRequests();
+            var target = requests.find(function(r) { return r.id === reqId; });
+            if (!target) return;
+
+            var timestamp = target.createdAt || target.id;
+            var ageMs = Date.now() - timestamp;
+
+            if (ageMs < FIFTEEN_DAYS_MS) {
+                var daysLeft = Math.ceil((FIFTEEN_DAYS_MS - ageMs) / (24 * 60 * 60 * 1000));
+                alert('Yeh payment history 15 din se pehle delete nahi ho sakti! Abhi ' + daysLeft + ' din baaki hain.');
+                return;
+            }
+
+            var updated = requests.filter(function(r) { return r.id !== reqId; });
+            saveRequests(updated);
+            renderApp();
+        }
+
+        function renderApp() {
+            var content = document.getElementById('content');
+            if (!content) return;
+
+            // 1. HOME SCREEN
+            if (currentView === 'home') {
+                var batches = getBatches();
+                var html = '';
+                html += '<div class="bg-gradient-to-r from-emerald-600 to-teal-700 text-white p-6 rounded-2xl mb-6 shadow-md">';
+                html += '<span class="bg-white/20 text-xs px-2.5 py-1 rounded-full uppercase tracking-wider font-semibold">New Sessions Live</span>';
+                html += '<h2 class="text-xl font-bold mt-3 mb-1">Unlock Your Academic Potential Today</h2>';
+                html += '<p class="text-xs text-emerald-100">Explore top-tier study batches, notes, and expert material.</p>';
+                html += '</div>';
+
+                html += '<div class="flex justify-between items-center mb-4">';
+                html += '<h3 class="text-md font-bold text-gray-800 flex items-center"><i class="fa-solid fa-fire text-amber-500 mr-2"></i> Available Batches</h3>';
+                html += '<span class="text-xs bg-gray-200 text-gray-700 px-2 py-0.5 rounded-full">' + batches.length + ' Batches</span>';
+                html += '</div>';
+
+                html += '<div class="space-y-3">';
+                for (var i = 0; i < batches.length; i++) {
+                    var b = batches[i];
+                    html += '<div class="border border-gray-200 bg-white p-4 rounded-xl flex justify-between items-center shadow-sm">';
+                    html += '<div>';
+                    html += '<h4 class="font-bold text-gray-800 text-sm">' + b.title + '</h4>';
+                    html += '<p class="text-xs text-gray-500">' + b.desc + '</p>';
+                    html += '<p class="text-emerald-700 font-bold text-sm mt-1">₹' + b.price + '</p>';
+                    html += '</div>';
+                    html += '<button onclick="startCheckout(' + b.id + ')" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-xs font-semibold shadow">Enroll Now</button>';
+                    html += '</div>';
+                }
+                html += '</div>';
+
+                content.innerHTML = html;
+            }
+
+            // 2. CHECKOUT SCREEN
+            else if (currentView === 'checkout') {
+                var batches = getBatches();
+                var batch = batches.find(function(b) { return b.id === selectedBatchId; }) || { title: 'Batch', price: 0 };
+
+                var html = '';
+                html += '<div class="border border-gray-200 bg-white p-5 rounded-2xl shadow-sm">';
+                html += '<div class="flex justify-between items-center mb-4 pb-3 border-b">';
+                html += '<h3 class="font-bold text-gray-800 text-sm">Complete Payment</h3>';
+                html += '<button onclick="goToView(\'home\')" class="text-gray-400 hover:text-gray-600 text-xl font-bold">&times;</button>';
+                html += '</div>';
+
+                html += '<div class="text-center mb-4">';
+                html += '<p class="text-xs text-gray-500 mb-2">Scan QR code using UPI app</p>';
+                html += '<div class="inline-block p-2 border rounded-xl bg-gray-50">';
+                html += '<img src="https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=upi://pay?pa=store@upi&pn=AmarStore&am=' + batch.price + '" class="w-40 h-40 mx-auto" alt="UPI QR">';
+                html += '</div>';
+                html += '<h4 class="font-bold text-gray-800 mt-2 text-sm">' + batch.title + '</h4>';
+                html += '<p class="text-emerald-700 font-bold text-lg">₹' + batch.price + '</p>';
+                html += '</div>';
+
+                html += '<div class="space-y-3">';
+                html += '<div>';
+                html += '<label class="block text-xs font-semibold text-gray-600 mb-1">YOUR PHONE NUMBER</label>';
+                html += '<input type="tel" id="studentPhone" class="w-full border border-gray-300 p-2.5 rounded-lg text-sm outline-none" placeholder="e.g. 9876543210">';
+                html += '</div>';
+
+                html += '<div>';
+                html += '<label class="block text-xs font-semibold text-gray-600 mb-1">UPLOAD PAYMENT SCREENSHOT</label>';
+                html += '<input type="file" id="paymentScreenshot" accept="image/*" class="w-full border border-gray-300 p-2 rounded-lg text-xs">';
+                html += '</div>';
+
+                html += '<button id="submitPayBtn" onclick="handlePurchaseSubmit()" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-3 rounded-xl font-bold text-sm shadow transition mt-2">Submit Payment Screenshot</button>';
+                html += '</div></div>';
+
+                content.innerHTML = html;
+            }
+
+            // 3. ADMIN PANEL SCREEN
+            else if (currentView === 'admin') {
+                var allRequests = getRequests();
+                var pendingCount = allRequests.filter(function(r) { return r.status === 'pending'; }).length;
+                var approvedCount = allRequests.filter(function(r) { return r.status === 'approved'; }).length;
+
+                var filteredRequests = allRequests;
+                if (adminFilter === 'pending') {
+                    filteredRequests = allRequests.filter(function(r) { return r.status === 'pending'; });
+                } else if (adminFilter === 'approved') {
+                    filteredRequests = allRequests.filter(function(r) { return r.status === 'approved'; });
+                }
+
+                var html = '';
+                html += '<div class="flex justify-between items-center mb-4">';
+                html += '<div class="flex items-center space-x-2">';
+                html += '<span class="w-8 h-8 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center"><i class="fa-solid fa-lock text-sm"></i></span>';
+                html += '<div>';
+                html += '<h3 class="text-md font-bold text-gray-800">All Payments (' + allRequests.length + ')</h3>';
+                html += '<p class="text-[11px] text-gray-500">15 din baad (16th day) delete unlock hoga</p>';
+                html += '</div>';
+                html += '</div>';
+                html += '<button onclick="goToView(\'home\')" class="text-xs bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-1.5 rounded-lg font-semibold">Back</button>';
+                html += '</div>';
+
+                // Filter Tabs
+                html += '<div class="flex space-x-2 mb-4">';
+                html += '<button onclick="setAdminFilter(\'all\')" class="flex-1 py-1.5 rounded-lg text-xs font-bold ' + (adminFilter === 'all' ? 'bg-emerald-600 text-white' : 'bg-gray-200 text-gray-700') + '">All (' + allRequests.length + ')</button>';
+                html += '<button onclick="setAdminFilter(\'pending\')" class="flex-1 py-1.5 rounded-lg text-xs font-bold ' + (adminFilter === 'pending' ? 'bg-amber-500 text-white' : 'bg-gray-200 text-gray-700') + '">Pending (' + pendingCount + ')</button>';
+                html += '<button onclick="setAdminFilter(\'approved\')" class="flex-1 py-1.5 rounded-lg text-xs font-bold ' + (adminFilter === 'approved' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700') + '">Approved (' + approvedCount + ')</button>';
+                html += '</div>';
+
+                if (filteredRequests.length === 0) {
+                    html += '<div class="border border-dashed border-gray-300 rounded-xl p-8 text-center text-gray-400 text-xs">No payment screenshots found here.</div>';
+                } else {
+                    html += '<div class="space-y-4 pb-10">';
+                    var now = Date.now();
+                    for (var j = 0; j < filteredRequests.length; j++) {
+                        var req = filteredRequests[j];
+                        var isApproved = req.status === 'approved';
+                        var timestamp = req.createdAt || req.id;
+                        var ageMs = now - timestamp;
+                        var canDelete = ageMs >= FIFTEEN_DAYS_MS;
+                        var daysLeft = Math.ceil((FIFTEEN_DAYS_MS - ageMs) / (24 * 60 * 60 * 1000));
+
+                        html += '<div class="border ' + (isApproved ? 'border-emerald-200 bg-emerald-50/30' : 'border-gray-200 bg-white') + ' p-4 rounded-xl shadow-sm space-y-3">';
+                        html += '<div class="flex justify-between items-start">';
+                        html += '<div>';
+                        html += '<span class="text-[10px] font-bold px-2 py-0.5 rounded uppercase ' + (isApproved ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-800') + '">' + (j + 1) + '. ' + req.status + '</span>';
+                        html += '<h5 class="font-bold text-gray-800 text-sm mt-1">' + req.batchTitle + '</h5>';
+                        html += '<p class="text-xs text-gray-500">Phone: <span class="font-semibold text-gray-800">' + req.phone + '</span></p>';
+                        html += '<p class="text-[11px] text-gray-400">' + req.date + '</p>';
+                        html += '</div>';
+                        html += '<span class="text-emerald-700 font-bold text-sm bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-100">₹' + req.price + '</span>';
+                        html += '</div>';
+
+                        // Screenshot Display
+                        html += '<div class="border border-gray-200 rounded-lg p-2 bg-gray-50">';
+                        html += '<p class="text-xs text-gray-500 font-semibold mb-1.5 flex items-center"><i class="fa-solid fa-image mr-1 text-emerald-600"></i> Payment Screenshot (Tap to zoom):</p>';
+                        html += '<a href="' + req.proof + '" target="_blank">';
+                        html += '<img src="' + req.proof + '" class="w-full max-h-64 object-contain rounded border bg-white" alt="Payment Screenshot">';
+                        html += '</a>';
+                        html += '</div>';
+
+                        // Action Buttons
+                        html += '<div class="flex space-x-2 pt-1">';
+                        if (!isApproved) {
+                            html += '<button onclick="approveRequest(' + req.id + ')" class="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white py-2 rounded-lg text-xs font-bold shadow">Approve</button>';
+                        }
+                        if (canDelete) {
+                            html += '<button onclick="rejectRequest(' + req.id + ')" class="flex-1 bg-red-500 hover:bg-red-600 text-white py-2 rounded-lg text-xs font-bold shadow">Delete</button>';
+                        } else {
+                            html += '<button onclick="rejectRequest(' + req.id + ')" class="flex-1 bg-gray-300 text-gray-600 py-2 rounded-lg text-xs font-bold cursor-not-allowed"><i class="fa-solid fa-lock mr-1"></i> Delete (' + daysLeft + 'd left)</button>';
+                        }
+                        html += '</div>';
+                        html += '</div>';
+                    }
+                    html += '</div>';
+                }
+
+                content.innerHTML = html;
+            }
+        }
+
+        renderApp();
+    </script>
+</body>
+</html>
